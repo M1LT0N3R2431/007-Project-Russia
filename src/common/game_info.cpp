@@ -1,0 +1,299 @@
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cmath>
+#include <string>
+
+#include <toml++/toml.hpp>
+
+#include "app/app.h"
+#include "audio/output.h"
+#include "common/menu.h"
+#include "common/mouse_keyboard.h"
+#include "common/options.h"
+#include "common/pad_binds.h"
+#include "common/saves.h"
+#include "core/input.h"
+
+void TakeCutsceneSkip(int port, input::Pad& pad);  // cutscenes.cpp
+void WeaponArrow(int dir);                           // actions.cpp
+bool WeaponSwitching();                              // actions.cpp
+
+namespace game {
+
+bool g_fps_cap_saved = false;  // Load only runs when the settings file exists
+bool g_custom_textures_saved = false;
+
+namespace {
+
+// The SDK reads and sets the controller slot numbered as the port. A player port takes the slot it is set to, so a
+// slot read or set for another port goes past these hooks.
+thread_local bool g_raw = false;
+std::array<std::atomic<uint32_t>, kPlayers> g_motors{};  // by slot: left << 16 | right as its player last set
+
+input::Pad RawPad(int slot) {
+    g_raw = true;
+    input::Pad pad = input::Poll(slot);
+    g_raw = false;
+    return pad;
+}
+
+void RawRumble(int slot, uint16_t left, uint16_t right) {
+    g_raw = true;
+    input::Rumble(slot, left, right);
+    g_raw = false;
+}
+
+input::Pad SlotPad(int port, int slot, const input::Pad& own) {
+    if (slot < 0) return input::Pad{};
+    return slot == port ? own : RawPad(slot);
+}
+
+// The game drops a stick axis inside 0.05 of full: the axis is moved so that zone starts where the chosen one does
+int16_t MoveDeadZone(int16_t value, float zone) {
+    constexpr float kStickMax = 32767.0f;
+    float v = std::min(std::abs(float(value)) / kStickMax, 1.0f);
+    if (v <= zone) return 0;
+    float out = (kGameDeadZone + (v - zone) / (1.0f - zone) * (1.0f - kGameDeadZone)) * kStickMax;
+    return int16_t(std::lround(value < 0 ? -out : out));
+}
+
+void ApplyDeadZone(input::Pad& pad) {
+    float zone = Opt().pad_dead_zone;
+    if (zone <= 0.0f) return;
+    for (int16_t* axis : {&pad.lx, &pad.ly, &pad.rx, &pad.ry}) *axis = MoveDeadZone(*axis, zone);
+}
+
+uint16_t ScaleMotor(uint16_t speed) {
+    return uint16_t(std::min<uint32_t>(speed * Opt().vibration_strength / 100, 0xFFFF));
+}
+
+bool SlotOwned(int slot) {
+    const auto& players = Opt().players;
+    return std::any_of(players.begin(), players.end(), [slot](const PlayerPort& p) { return p.pad == slot; });
+}
+
+// the port's controller slot and, when set to, the keyboard; the game sees no input while the panel is open or a
+// binding waits
+void Pad(int port, input::Pad& pad) {
+    if (g_raw || port < 0 || port >= kPlayers) return;
+    PlayerPort player = Opt().players[size_t(port)];
+    pad = SlotPad(port, player.pad, pad);
+    ApplyDeadZone(pad);
+    if (player.keyboard) input::SeenPad(port, pad);
+    input::RemapPad(port, pad);
+    // the arrows change the weapon: the game has no on foot action for the dpad, so a tap of a touch arrow runs the
+    // item select HUD's own pick over a few frames. The HUD's dpad bits are held back meanwhile, or the arrow still
+    // held down would step its selection a second time
+    if (port == 0) {
+        constexpr uint16_t kDpadLeft = 1 << 2;
+        constexpr uint16_t kDpadRight = 1 << 3;
+        if (int arrow = input::TakeWeaponArrow()) ::WeaponArrow(arrow);
+        if (::WeaponSwitching()) pad.buttons &= ~(kDpadLeft | kDpadRight);
+    }
+    if (player.keyboard) pad.connected = true;
+    if (app::MenuOpen() || app::Capturing()) {
+        pad = input::Pad{.connected = pad.connected};
+    } else if (player.keyboard) {
+        input::Keyboard(pad);
+    }
+    TakeCutsceneSkip(port, pad);
+}
+
+// to the port's own slot; what the SDK then sets on the slot numbered as the port is that slot's player's.
+// No vibration while the keyboard and mouse are in use.
+void Rumble(int port, uint16_t& left, uint16_t& right) {
+    if (g_raw || port < 0 || port >= kPlayers) return;
+    PlayerPort player = Opt().players[size_t(port)];
+    if (player.keyboard && input::KeyboardActive()) {
+        left = 0;
+        right = 0;
+    }
+    left = ScaleMotor(left);
+    right = ScaleMotor(right);
+    if (player.pad >= 0) g_motors[size_t(player.pad)] = uint32_t(left) << 16 | right;
+    if (player.pad >= 0 && player.pad != port) RawRumble(player.pad, left, right);
+    uint32_t motors = SlotOwned(port) ? g_motors[size_t(port)].load() : 0;
+    left = uint16_t(motors >> 16);
+    right = uint16_t(motors);
+}
+
+std::string PortName(const PlayerPort& p) {
+    std::string name = p.keyboard ? "keyboard" : "";
+    if (p.pad >= 0) name += (name.empty() ? "controller" : "+controller") + std::to_string(p.pad + 1);
+    return name.empty() ? "none" : name;
+}
+
+PlayerPort ParsePort(const std::string& name, PlayerPort fallback) {
+    PlayerPort p;
+    p.keyboard = name.find("keyboard") != std::string::npos;
+    if (size_t at = name.find("controller"); at != std::string::npos && at + 10 < name.size()) {
+        int n = name[at + 10] - '0';  // the digit after "controller"
+        if (n >= 1 && n <= kPlayers) p.pad = n - 1;
+    }
+    return p.keyboard || p.pad >= 0 || name == "none" ? p : fallback;
+}
+
+std::string PlayerKey(int player) { return "player" + std::to_string(player + 1); }
+
+// a device sits on one port only, and player 1 never has none
+void LoadPlayers(const toml::table& settings, std::array<PlayerPort, kPlayers>& players) {
+    for (int i = 0; i < kPlayers; i++) {
+        PlayerPort& p = players[size_t(i)];
+        p = ParsePort(settings[PlayerKey(i)].value_or(PortName(p)), p);
+        for (int j = 0; j < i; j++) {
+            if (players[size_t(j)].keyboard) p.keyboard = false;
+            if (p.pad >= 0 && players[size_t(j)].pad == p.pad) p.pad = -1;
+        }
+    }
+    auto used = [](const PlayerPort& p) { return p.keyboard || p.pad >= 0; };
+    auto first = std::find_if(players.begin(), players.end(), used);
+    if (first == players.end()) players[0] = PlayerPort{true, 0};
+    else std::swap(players[0], *first);
+}
+
+void LoadNames(const toml::table& settings, const char* name, std::map<std::string, std::string>& names) {
+    const toml::table* table = settings[name].as_table();
+    if (!table) return;
+    for (auto&& [id, value] : *table) {
+        if (auto text = value.value<std::string>()) names[std::string(id.str())] = *text;
+    }
+}
+
+void SaveNames(toml::table& settings, const char* name, const std::map<std::string, std::string>& names) {
+    toml::table table;
+    for (const auto& [id, text] : names) table.insert(id, text);
+    settings.insert(name, table);
+}
+
+struct FloatOption {
+    const char* key;
+    float Options::*value;
+};
+constexpr FloatOption kFloats[] = {
+    {"mouse_sensitivity", &Options::mouse_sensitivity},
+    {"mouse_vertical_sensitivity", &Options::mouse_vertical_sensitivity},
+    {"aim_horizontal_sensitivity", &Options::aim_horizontal_sensitivity},
+    {"aim_vertical_sensitivity", &Options::aim_vertical_sensitivity},
+    {"pad_horizontal_sensitivity", &Options::pad_horizontal_sensitivity},
+    {"pad_vertical_sensitivity", &Options::pad_vertical_sensitivity},
+    {"pad_aim_horizontal_sensitivity", &Options::pad_aim_horizontal_sensitivity},
+    {"pad_aim_vertical_sensitivity", &Options::pad_aim_vertical_sensitivity},
+    {"pad_dead_zone", &Options::pad_dead_zone},
+};
+
+// what the options list cannot hold
+void Load(const void* table) {
+    const toml::table& settings = *static_cast<const toml::table*>(table);
+    Options& options = Opt();
+    for (const FloatOption& f : kFloats) {
+        float value = float(settings[f.key].value_or(double(options.*f.value)));
+        if (std::isfinite(value)) options.*f.value = value;
+    }
+    // files from before the split have the one sensitivity
+    bool split = settings.contains("mouse_vertical_sensitivity");
+    if (!split) options.mouse_vertical_sensitivity = options.mouse_sensitivity;
+    float zone = options.pad_dead_zone;
+    options.pad_dead_zone = zone > 0.0f ? std::clamp(zone, kMinDeadZone, 1.0f) : 0.0f;
+    options.vibration_strength = std::clamp(options.vibration_strength, kMinVibration, kMaxVibration);
+    options.brightness = std::min(options.brightness, kMaxPicture);
+    options.contrast = std::min(options.contrast, kMaxPicture);
+    float gyro = float(settings["gyro_sensitivity"].value_or(double(options.gyro.sensitivity)));
+    if (std::isfinite(gyro)) options.gyro.sensitivity = gyro;
+    options.monitor = settings["monitor"].value_or(options.monitor);
+    g_fps_cap_saved = settings.contains("fps_cap");
+    g_custom_textures_saved = settings.contains("custom_textures");
+    LoadNames(settings, "keys", options.keys);
+    LoadNames(settings, "pad_buttons", options.pad_buttons);
+    LoadPlayers(settings, options.players);
+}
+
+void Save(void* table) {
+    toml::table& settings = *static_cast<toml::table*>(table);
+    settings.insert("monitor", Opt().monitor);
+    // thousandths, so the file reads 0.3 and not 0.30000001192092896
+    for (const FloatOption& f : kFloats) settings.insert(f.key, std::round(double(Opt().*f.value) * 1000.0) / 1000.0);
+    settings.insert("gyro_sensitivity", std::round(double(Opt().gyro.sensitivity) * 1000.0) / 1000.0);
+    SaveNames(settings, "keys", Opt().keys);
+    SaveNames(settings, "pad_buttons", Opt().pad_buttons);
+    for (int i = 0; i < kPlayers; i++) settings.insert(PlayerKey(i), PortName(Opt().players[size_t(i)]));
+}
+
+void Init() {
+    if (!g_fps_cap_saved) app::Get().fps_cap = app::kFpsCapRefresh;
+    // texture replacement starts off
+    if (!g_custom_textures_saved) app::Get().custom_textures = false;
+    input::LoadBindings();
+    input::LoadPadBindings();
+    audio::SetOutputMode(Opt().audio_output);
+    audio::SetVolume(float(Opt().master_volume) / 100.0f);
+    RemoveUnfinishedSaves();
+}
+
+}  // namespace
+
+Options& Opt() {
+    static Options options;
+    return options;
+}
+
+bool ControllerPlugged(int slot) { return slot >= 0 && slot < kPlayers && RawPad(slot).connected; }
+
+}  // namespace game
+
+// what the runtime asks of the game; strings must be set, hooks may stay null
+const app::GameInfo app::kGame = {
+    .title = L"007: From Russia with Love - XBE Recomp", // window, splash and compiler
+    .short_title = L"007 FRWL",             // message boxes
+    .name = L"007FRWL",                     // window classes, crash dumps, handover event
+    .log = "007frwl",                       // log file prefix
+    .settings = "settings.toml",            // settings file beside the exe
+    .splash = L"splash",                    // optional splash.png or splash.bmp beside the exe
+    .missing = L"Put the game in the assets folder: its disc image (.iso), or default.xbe with its folders beside it.",
+    .images = {{"default.xbe", "007FRWL"}}, // each recompiled xbe and its exe, for title launches
+    .options = {                            // game settings kept in the settings file
+        {"invert_mouse", &game::Opt().invert_mouse, nullptr},
+        {"invert_mouse_x", &game::Opt().invert_mouse_x, nullptr},
+        {"vibration_strength", nullptr, &game::Opt().vibration_strength},
+        {"gyro_aiming", &game::Opt().gyro.enabled, nullptr},
+        {"gyro_axis", nullptr, &game::Opt().gyro.axis},
+        {"gyro_button", nullptr, &game::Opt().gyro.button},
+        {"gyro_button_mode", nullptr, &game::Opt().gyro.button_mode},
+        {"camera_centring", &game::Opt().camera_centring, nullptr},
+        {"free_aim", &game::Opt().free_aim, nullptr},
+        {"pad_camera_centring", &game::Opt().pad_camera_centring, nullptr},
+        {"pad_free_aim", &game::Opt().pad_free_aim, nullptr},
+        {"skip_intros", &game::Opt().skip_intros, nullptr},
+        {"skippable_cutscenes", &game::Opt().skippable_cutscenes, nullptr},
+        {"skip_popups", nullptr, &game::Opt().skip_popups},
+        {"autosave", &game::Opt().autosave, nullptr},
+        {"persistent_bodies", &game::Opt().persistent_bodies, nullptr},
+        {"inventory_pause", &game::Opt().inventory_pause, nullptr},
+        {"fps_counter", &game::Opt().fps_counter, nullptr},
+        {"hdr_output", &game::Opt().hdr_output, nullptr},
+        {"colour_blind", nullptr, &game::Opt().colour_blind},
+        {"brightness", nullptr, &game::Opt().brightness},
+        {"contrast", nullptr, &game::Opt().contrast},
+        {"ambient_occlusion", nullptr, &game::Opt().ambient_occlusion},
+        {"audio_output", nullptr, &game::Opt().audio_output},
+        {"master_volume", nullptr, &game::Opt().master_volume},
+        {"music_volume", nullptr, &game::Opt().music_volume},
+        {"msaa", nullptr, &game::Opt().msaa},
+        {"draw_distance", nullptr, &game::Opt().draw_distance},
+        {"smaa", &game::Opt().smaa, nullptr},
+        {"dynamic_resolution", &game::Opt().dynamic_resolution, nullptr},
+        {"fov", nullptr, &game::Opt().fov},
+        {"fmv_scale", nullptr, &game::Opt().fmv_scale},
+        {"pause_on_focus_loss", &game::Opt().pause_on_focus_loss, nullptr},
+        {"async_shaders", &game::Opt().async_shaders, nullptr},
+    },
+    .load = game::Load,                     // reads more from the settings file's toml::table
+    .save = game::Save,                     // writes more into it
+    .init = game::Init,                     // after the settings load, before the window and boot
+    .loaded = nullptr,                      // image in memory, before its entry point runs
+    .window = input::StartMouse,            // the game window is up, before boot; a no-op under the touch screen
+    .message = nullptr,                     // window messages: Windows only, the event loop reads SDL's
+    .ui = app::DrawUi,                      // ImGui drawing each frame
+    .pad = game::Pad,                       // changes a polled pad
+    .rumble = game::Rumble,                 // changes a rumble before it is set
+};

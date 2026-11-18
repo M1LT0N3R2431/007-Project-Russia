@@ -1,0 +1,87 @@
+#pragma once
+#include <array>
+#include <atomic>
+#include <map>
+#include <string>
+
+#include "common/gyro.h"
+
+// the game's own settings, in the settings file through app::kGame.options
+namespace game {
+
+// the languages the recomp text has: English, French, German, Italian, Spanish
+inline constexpr const char* kLanguages[] = {"int", "fra", "deu", "ita", "esp"};
+
+// what a player's controller port has plugged in: the keyboard and mouse, a controller, both or neither
+struct PlayerPort {
+    bool keyboard = false;
+    int pad = -1;  // controller slot 0 to 3, -1 for none
+};
+inline constexpr int kPlayers = 4;  // the console's controller ports
+inline constexpr float kGameDeadZone = 0.05f;  // per stick axis, the input manager's +0x180 set at 0x352396
+inline constexpr float kMinDeadZone = 0.1f;
+inline constexpr uint32_t kMinVibration = 10;
+inline constexpr uint32_t kMaxVibration = 200;
+inline constexpr uint32_t kMaxPicture = 100;  // brightness and contrast
+
+struct Options {
+    bool skip_intros = false;
+    bool skippable_cutscenes = false;  // Start or its key ends an in game cutscene
+    uint32_t skip_popups = 0;  // bits: 1 the boxes that pause the game, 2 the objective messages
+    bool fps_counter = false;
+    bool hdr_output = true;  // HDR10 on a display with Windows HDR on
+    uint32_t colour_blind = 0;  // 0 off, 1 protanopia, 2 deuteranopia, 3 tritanopia
+    uint32_t brightness = 50;  // 0 to 100 over the game's own brightness, 50 each leaves the picture alone
+    uint32_t contrast = 50;
+    bool invert_mouse = false;  // the Y axis
+    bool invert_mouse_x = false;
+    bool camera_centring = false;  // the chase camera swings back behind Bond on keyboard and mouse
+    bool free_aim = false;  // holding aim with any gun gives the rocket launcher's over the shoulder aim
+    bool pad_camera_centring = true;  // the two above for a controller; the console centres
+    bool pad_free_aim = false;
+    bool autosave = false;  // the stats screen saves; the save boxes are answered unseen
+    bool persistent_bodies = false;  // dead enemies and their dropped guns and shields are never deleted
+    bool inventory_pause = true;  // the game pauses while the inventory is open, as on the console
+    uint32_t ambient_occlusion = 0;  // screen space, from the scene's depth: 0 off, 1 SSAO, 2 GTAO
+    uint32_t audio_output = 0;  // audio::kOutputAuto, kOutputStereo, kOutputSurround or kOutputMono
+    uint32_t master_volume = 100;  // percent of the console's level, every sound
+    uint32_t music_volume = 100;   // percent, the music alone
+    float mouse_sensitivity = 1.0f;  // horizontal
+    float mouse_vertical_sensitivity = 1.0f;
+    // in the sniper scope, lock on fine aim and over the shoulder aim, times the sensitivity above
+    float aim_horizontal_sensitivity = 1.0f;
+    float aim_vertical_sensitivity = 1.0f;
+    // the right stick's turn, then in the same views times it
+    float pad_horizontal_sensitivity = 1.0f;
+    float pad_vertical_sensitivity = 1.0f;
+    float pad_aim_horizontal_sensitivity = 1.0f;
+    float pad_aim_vertical_sensitivity = 1.0f;
+    float pad_dead_zone = 0.0f;  // per stick axis, 0 the game's own
+    uint32_t vibration_strength = 100;  // percent of the game's rumble; the game has its own off
+    gyro::Settings gyro;  // the controller's gyro turns player 1's view, beside the right stick
+    uint32_t msaa = 0;  // samples a pixel of the scene, 0 off
+    bool smaa = false;  // over the finished frame, HUD included; combines with msaa
+    bool dynamic_resolution = true;  // the render resolution drops while the GPU cannot keep the frame rate
+    uint32_t draw_distance = 1;  // LOD and object distance multiplier, 1 the game's
+    uint32_t fov = 65;  // horizontal degrees on a 4:3 frame, 65 is the game's
+    uint32_t fmv_scale = 0;  // 4:3 films on a wider screen: 0 fill it, top and bottom cut; 1 kept 4:3
+    std::string monitor;  // its device name, \\.\DISPLAY2; empty the primary
+    bool pause_on_focus_loss = true;  // the game and its sound stop while the window is in the background
+    bool async_shaders = true;  // a draw whose pipeline needs compiling is skipped until the build threads have it
+    std::map<std::string, std::string> keys;  // action id to key names, absent is the default
+    std::map<std::string, std::string> pad_buttons;  // action id to a controller button's name, absent is the default
+    std::array<PlayerPort, kPlayers> players = {{{true, 0}, {false, 1}, {false, 2}, {false, 3}}};  // by port
+};
+Options& Opt();
+const char* ShownLanguage();  // language.cpp
+inline std::atomic<float> g_fps{0};  // from the host, for the game's own counter
+inline std::atomic<bool> g_hdr_display{false};  // the window's display has Windows HDR on, from the renderer
+inline std::atomic<bool> g_hide_hud{false};  // the toggle HUD key: the HUD is not drawn
+inline std::atomic<bool> g_fast_forward{false};  // a skipped cutscene plays on behind black, unpaced
+inline std::atomic<bool> g_focus_paused{false};  // the game thread waits for the window's focus
+void WaitWhileUnfocused();  // focus_pause.cpp: game thread, before the present
+uint32_t FocusPausedMs();  // the milliseconds the game thread has waited in focus pauses so far
+bool OnGameThread();  // the calling thread is the one that waits in focus pauses
+bool ControllerPlugged(int slot);  // game_info.cpp
+
+}  // namespace game
