@@ -6,7 +6,7 @@ Port no oficial a Android de la versión original de Xbox de *007: From Russia w
 
 El código x86 del juego se recompila estáticamente a C++ con [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) y se compila para arm64. El dibujado va por Vulkan, y la ventana, la entrada y el audio por SDL3. No hay emulador de por medio.
 
-El port parte del port de PC [007FRWL-XBERecomp](https://github.com/TGP482/007FRWL-XBERecomp) de TGP482 y del host Android de [Black for Android](https://github.com/RanggaCasper/Black-Android) de Rangga Casper. Ver [Créditos](#créditos).
+El proyecto parte del port de PC [007FRWL-XBERecomp](https://github.com/TGP482/007FRWL-XBERecomp) de TGP482 y del host Android de [Black for Android](https://github.com/RanggaCasper/Black-Android) de Rangga Casper. Ver [Créditos](#créditos).
 
 > [!NOTE]
 > Este proyecto no incluye ningún archivo del juego. Para instalarlo o compilarlo necesitas los archivos de tu propia copia legal del juego.
