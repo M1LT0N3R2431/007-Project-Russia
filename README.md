@@ -2,11 +2,11 @@
 
 *[English](README.en.md)*
 
-Port no oficial a Android de la versión original de Xbox de *007: From Russia with Love*, con controles táctiles en pantalla, soporte de mando y un objetivo de 60 FPS.
+Port no oficial para Android de la versión original de Xbox de *007: From Russia with Love*, con controles táctiles en pantalla, soporte de mando y un objetivo de 60 FPS.
 
 El código x86 del juego se recompila estáticamente a C++ con [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) y se compila para arm64. El dibujado va por Vulkan, y la ventana, la entrada y el audio por SDL3. No hay emulador de por medio.
 
-El proyecto parte del port de PC [007FRWL-XBERecomp](https://github.com/TGP482/007FRWL-XBERecomp) de TGP482 y del host Android de [Black for Android](https://github.com/RanggaCasper/Black-Android) de Rangga Casper. Ver [Créditos](#créditos).
+El proyecto fue creado a partir del port de PC [007FRWL-XBERecomp](https://github.com/TGP482/007FRWL-XBERecomp) de TGP482 y del host Android de [Black for Android](https://github.com/RanggaCasper/Black-Android) de Rangga Casper. Ver [Créditos](#créditos).
 
 > [!NOTE]
 > Este proyecto no incluye ningún archivo del juego. Para instalarlo o compilarlo necesitas los archivos de tu propia copia legal del juego.
