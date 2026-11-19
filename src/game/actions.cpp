@@ -175,14 +175,26 @@ const Answer* FindAnswer(uint32_t hash) {
     return nullptr;
 }
 
+// The touch controls that press a pad button of their own, as the console's do, so the game reads them straight off
+// the pad: the quick select's dpad and A/B, the car's Y (a tap leaves the car, a hold cuts the tires) and its LT.
+bool TouchPressesPad(const Answer& answer) {
+    if (answer.section == Section::Inventory) return true;
+    if (answer.section != Section::Car) return false;
+    for (const char* key : answer.keys) {
+        if (key && (std::strcmp(key, "car_target_lock") == 0 || std::strcmp(key, "car_tire_slasher") == 0 ||
+                    std::strcmp(key, "car_exit") == 0))
+            return true;
+    }
+    return false;
+}
+
 // none leaves the action to the pad
 std::optional<bool> KeyAnswer(uint32_t port, uint32_t hash, uint32_t mode) {
     bool keyboard = int(port) == input::KeyboardPort() && input::KeyboardActive();
     const Answer* answer = keyboard && mode <= kPressed ? FindAnswer(hash) : nullptr;
     if (!answer) return std::nullopt;
-    // the quick select's controls are the pad's dpad and A/B, which the touch buttons press straight on the pad;
     // leave those actions to the game, or they would answer false over the pad's own bits
-    if (answer->section == Section::Inventory && input::TouchActive()) return std::nullopt;
+    if (input::TouchActive() && TouchPressesPad(*answer)) return std::nullopt;
     uint64_t keys = mode == kHeld ? g_keys.now : g_keys.now & ~g_keys.before;
     return (keys & KeyMask(*answer)) != 0;
 }

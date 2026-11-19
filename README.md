@@ -51,7 +51,7 @@ Los controles son el mando del propio juego sobre la pantalla, y cambian según 
 | Atrás (BACK, menús) | Salir de un menú |
 | Engranaje | Panel de ajustes |
 
-La conducción y el jetpack tienen sus propios botones en los sitios del mando original: acelerar en A, frenar en X, freno de mano y aterrizar en B, y el cortador y salir en Y.
+La conducción y el jetpack tienen sus propios botones en los sitios del mando original: acelerar en A, frenar en X, freno de mano y aterrizar en B, y el cortador y salir en Y. En el coche el stick solo dirige (no acelera ni frena), los dos botones de flechas de abajo a la izquierda giran a izquierda y derecha, L fija el objetivo y Y sale del vehículo de un toque o corta los neumáticos si se mantiene.
 
 El diseño se puede mover y redimensionar: abre el panel de ajustes (engranaje) y ve a **Controles táctiles → Editar diseño**. Arrastra un control para moverlo, pellízcalo para cambiar su tamaño, y usa la barra superior para restablecer, ocultar, cancelar o guardar. El diseño se guarda en `layout.toml`.
 

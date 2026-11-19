@@ -345,7 +345,7 @@ Binds CopyBinds() {
     return g_binds;
 }
 
-// the touch controls press the keys their actions are bound to, and the car's stick its gas and brake
+// the touch controls press the keys their actions are bound to
 void HoldActionKeys(size_t action, bool down) {
     if (action >= kCount) return;
     std::lock_guard lock(g_bind_lock);
@@ -408,7 +408,7 @@ Section KeySection(Section now) { return now == Section::Copter ? Section::Jetpa
 bool Applies(const Entry& entry, Section now) {
     if (entry.section != Section::Foot) return entry.section == KeySection(now);
     if (entry.kind == Kind::Move) return now == Section::Foot;
-    // the car's right stick is its gas and brake
+    // the car steers with its left stick alone: the look keys would fight it
     if (entry.kind == Kind::Look) return now != Section::Car;
     return true;
 }
@@ -698,11 +698,14 @@ void Keyboard(Pad& pad) {
     StickKeys sticks;
     PressBoundKeys(binds, play, pad, sticks);
     if (!play) PressMenuKeys(binds, pad);
-    if (!play) PressTap(pad);
+    // a page takes its click even while the world behind it still counts as play for a moment
+    if (!play || g_menu) PressTap(pad);
     if (!play && g_menu) PressWheel(pad);
     SetSticks(pad, sticks);
     // the touch stick straight onto the axes, as its own input: it is not the keys', so past their walk and diagonal
     if (float sx = g_stick_x, sy = g_stick_y; sx != 0.0f || sy != 0.0f) {
+        // driving steers with the stick's x alone: the pedals are their own buttons, as on the console
+        if (g_section == Section::Car) sy = 0.0f;
         pad.lx = int16_t(std::clamp(sx, -1.0f, 1.0f) * float(kFullStick));
         pad.ly = int16_t(std::clamp(sy, -1.0f, 1.0f) * float(kFullStick));
     }
@@ -910,7 +913,8 @@ enum : int { kPanel = -1, kByAction = -3, kPad = -4 };
 
 // an icon in white line art inside the button
 enum class Icon : uint8_t { Bullet, Scope, Action, Focus, Cover, Roll, Reload, WeaponLeft, WeaponRight, Crouch, Case,
-                            Start, Gear, Back, Accel, Brake, Handbrake, Slasher, FlyUp, FlyDown, Land };
+                            Start, Gear, Back, Accel, Brake, Handbrake, Slasher, FlyUp, FlyDown, Land, SteerLeft,
+                            SteerRight };
 // Play while the player has the controls, OnFoot walking, Car driving, Jetpack flying the jetpack or the copter, Game
 // outside the menus (cutscenes too), Menus in the menus and options, Always in both
 enum class When : uint8_t { Play, OnFoot, Car, Jetpack, Menus, Game, Always };
@@ -965,10 +969,11 @@ constexpr Button kButtons[] = {
     {"fly_up", "Fly up", "A", Icon::FlyUp, kByAction, Act("fly_up"), When::Jetpack},
     {"fly_down", "Fly down", "X", Icon::FlyDown, kByAction, Act("fly_down"), When::Jetpack},
     {"fly_exit", "Land / exit", "Y", Icon::Land, kByAction, Act("fly_exit"), When::Jetpack},
+    // driving's steering, for a thumb that would rather press than push the stick
+    {"car_left", "Steer left", "", Icon::SteerLeft, kByAction, Act("car_steer_left"), When::Car},
+    {"car_right", "Steer right", "", Icon::SteerRight, kByAction, Act("car_steer_right"), When::Car},
 };
 constexpr size_t kFireTouch = Act("fire");
-constexpr size_t kCarAccel = Act("car_accelerate");
-constexpr size_t kCarBrake = Act("car_brake");
 constexpr size_t kButtonCount = std::size(kButtons);
 constexpr size_t kStick = kButtonCount;  // the stick's place, after the buttons'
 
@@ -989,7 +994,7 @@ struct Place {
 };
 using Layout = std::array<Place, kButtonCount + 1>;
 // fire, lock on, action, focus, cover, roll, reload, weapon left, weapon right, crouch, inventory, pause, back, panel,
-// accelerate, brake, handbrake, slasher, fly up, fly down, land, stick
+// accelerate, brake, handbrake, slasher, fly up, fly down, land, steer left, steer right, stick
 // the thumbs alone: the triggers under the index fingers, the face buttons under the right thumb
 constexpr Layout kTwoFinger = {{
     {0.905f, 0.20f, 0.075f}, {0.095f, 0.20f, 0.075f}, {0.80f, 0.80f, 0.058f}, {0.70f, 0.70f, 0.05f},
@@ -997,7 +1002,7 @@ constexpr Layout kTwoFinger = {{
     {0.80f, 0.44f, 0.038f},  {0.255f, 0.60f, 0.045f}, {0.055f, 0.34f, 0.042f}, {0.945f, 0.34f, 0.042f},
     {0.055f, 0.10f, 0.042f}, {0.50f, 0.06f, 0.032f},  {0.86f, 0.82f, 0.065f},  {0.86f, 0.64f, 0.055f},
     {0.72f, 0.82f, 0.055f},  {0.72f, 0.64f, 0.05f},   {0.60f, 0.58f, 0.055f},  {0.60f, 0.78f, 0.055f},
-    {0.46f, 0.68f, 0.05f},   {0.13f, 0.72f, 0.12f},
+    {0.46f, 0.68f, 0.05f},   {0.07f, 0.88f, 0.055f},  {0.25f, 0.88f, 0.055f},  {0.13f, 0.72f, 0.12f},
 }};
 // claw with the left index finger: the triggers at the top corners, the right thumb turns and aims
 constexpr Layout kThreeFinger = {{
@@ -1006,7 +1011,7 @@ constexpr Layout kThreeFinger = {{
     {0.78f, 0.44f, 0.038f},  {0.255f, 0.62f, 0.045f}, {0.055f, 0.34f, 0.042f}, {0.945f, 0.30f, 0.042f},
     {0.055f, 0.10f, 0.042f}, {0.50f, 0.06f, 0.032f},  {0.87f, 0.84f, 0.065f},  {0.87f, 0.66f, 0.055f},
     {0.72f, 0.84f, 0.055f},  {0.72f, 0.66f, 0.05f},   {0.58f, 0.58f, 0.055f},  {0.58f, 0.80f, 0.055f},
-    {0.44f, 0.69f, 0.05f},   {0.15f, 0.74f, 0.13f},
+    {0.44f, 0.69f, 0.05f},   {0.06f, 0.88f, 0.055f},  {0.24f, 0.88f, 0.055f},  {0.15f, 0.74f, 0.13f},
 }};
 // both index fingers on top: the thumbs low, the face buttons where the right thumb rests
 constexpr Layout kFourFinger = {{
@@ -1015,7 +1020,7 @@ constexpr Layout kFourFinger = {{
     {0.80f, 0.48f, 0.038f},  {0.27f, 0.62f, 0.045f}, {0.06f, 0.36f, 0.042f}, {0.94f, 0.32f, 0.042f},
     {0.06f, 0.10f, 0.042f},  {0.50f, 0.06f, 0.032f},  {0.88f, 0.82f, 0.065f}, {0.88f, 0.65f, 0.055f},
     {0.73f, 0.82f, 0.055f},  {0.73f, 0.65f, 0.05f},   {0.60f, 0.58f, 0.055f}, {0.60f, 0.82f, 0.055f},
-    {0.46f, 0.70f, 0.05f},   {0.17f, 0.74f, 0.13f},
+    {0.46f, 0.70f, 0.05f},   {0.06f, 0.88f, 0.055f},  {0.24f, 0.88f, 0.055f}, {0.17f, 0.74f, 0.13f},
 }};
 constexpr bool AllPlaced(const Layout& layout) {
     for (const Place& p : layout)
@@ -1039,10 +1044,11 @@ constexpr uint64_t kShownMs = 8000;     // the controls hide this long after the
 // a touch in the menus is a tap, a swipe up or down that scrolls, or the cursor held down (a slider dragged): which,
 // once it moved or stayed long enough to tell
 enum class MenuTouch : uint8_t { Undecided, Cursor, Scroll };
-constexpr float kMenuMove = 0.03f;     // screen heights a finger moves before it is a swipe or a drag
+constexpr float kMenuMove = 0.05f;     // screen heights a finger moves before it is a swipe or a drag
 constexpr float kScrollNotch = 0.05f;  // screen heights of a swipe a row scrolls, about a row of the menus
 constexpr uint64_t kHoldMs = 180;      // a finger still this long is the cursor held down
 constexpr int kMaxNotches = 8;         // notches a swipe runs ahead of the menu
+constexpr uint64_t kContinueMs = 700;  // a tap this short on the world moves a box or a film on, as A does
 
 struct Finger {
     SDL_FingerID id = 0;
@@ -1261,16 +1267,6 @@ void UpdateStick(const Finger& f) {
     }
     input::g_stick_x = dx;
     input::g_stick_y = -dy;
-    // the car reads its gas and brake as the keys its actions are bound to, its steering off the stick's x
-    if (input::g_section == input::Section::Car) {
-        input::g_stick_y = 0;
-        constexpr float kPush = 0.25f;  // the stick pushed this far past its rest presses the pedal
-        input::HoldActionKeys(kCarAccel, dy < -kPush);
-        input::HoldActionKeys(kCarBrake, dy > kPush);
-    } else {
-        input::HoldActionKeys(kCarAccel, false);
-        input::HoldActionKeys(kCarBrake, false);
-    }
 }
 
 // a dpad arrow held in the menus: a step as it comes down, then steps at a calm pace once held a while; the game
@@ -1309,8 +1305,6 @@ void Recount() {
     if (!stick) {
         input::g_stick_x = 0;
         input::g_stick_y = 0;
-        input::HoldActionKeys(kCarAccel, false);
-        input::HoldActionKeys(kCarBrake, false);
     }
 }
 
@@ -1381,6 +1375,7 @@ void FingerDown(SDL_FingerID id, float x, float y) {
     f.id = id;
     f.x0 = f.x = x;
     f.y0 = f.y = y;
+    f.down_ms = NowMs();
     if (g_editing) {
         EditDown(f, x, y);
         g_fingers.push_back(f);
@@ -1398,11 +1393,14 @@ void FingerDown(SDL_FingerID id, float x, float y) {
         if (kButtons[b].press == kPanel) app::ToggleMenu();
         PressButton(b, true);
     } else if (InMenus()) {
-        // not the cursor yet: a tap clicks where it lifts, a swipe scrolls without moving the cursor
+        // the cursor goes to the finger at once, so the page lights the item under it; a tap clicks where it lifts,
+        // a swipe scrolls without clicking
         f.role = Role::Cursor;
         f.menu = MenuTouch::Undecided;
         f.down_ms = NowMs();
         g_cursor_touch = true;
+        g_cursor_x = x;
+        g_cursor_y = y;
     } else if (x < Width() * kStickZone || (g_fixed_stick && InStick(x, y))) {
         f.role = Role::Stick;
         // fixed: pushed from its own centre, at once wherever the thumb came down
@@ -1418,12 +1416,13 @@ void FingerDown(SDL_FingerID id, float x, float y) {
     Recount();
 }
 
-// the finger becomes the cursor held down where it is
-void MenuHold(Finger& f) {
+// the finger becomes the cursor where it is; a drag presses the button, a finger merely resting does not, so a tap
+// that is held a moment still clicks when it lifts instead of waiting out the hold
+void MenuHold(Finger& f, bool press) {
     f.menu = MenuTouch::Cursor;
     g_cursor_x = f.x;
     g_cursor_y = f.y;
-    g_cursor_down = true;
+    if (press) g_cursor_down = true;
 }
 
 // a finger in the menus moved: up or down past kMenuMove scrolls, sideways is the cursor dragging; a scroll gives a
@@ -1436,7 +1435,7 @@ void MenuMove(Finger& f) {
             f.menu = MenuTouch::Scroll;
             f.notch_y = f.y0;
         } else if (std::fabs(dx) > kMenuMove * h) {
-            MenuHold(f);
+            MenuHold(f, true);
         }
     }
     if (f.menu == MenuTouch::Cursor) {
@@ -1457,11 +1456,12 @@ void MenuMove(Finger& f) {
     }
 }
 
-// a finger in the menus still since it came down: held long enough, it is the cursor held down (a slider dragged)
+// a finger in the menus still since it came down: held long enough, it is the cursor (a slider then dragged), but the
+// button stays up until it moves or lifts, so a plain tap is not swallowed by the wait
 void MenuHolds() {
     uint64_t now = NowMs();
     for (Finger& f : g_fingers)
-        if (f.role == Role::Cursor && f.menu == MenuTouch::Undecided && now - f.down_ms >= kHoldMs) MenuHold(f);
+        if (f.role == Role::Cursor && f.menu == MenuTouch::Undecided && now - f.down_ms >= kHoldMs) MenuHold(f, false);
 }
 
 void FingerMove(SDL_FingerID id, float x, float y) {
@@ -1503,14 +1503,21 @@ void FingerUp(SDL_FingerID id) {
             if (kButtons[f.button].press == kPad)
                 g_pad_until[f.button] = std::max(g_pad_until[f.button], f.down_ms + kPadTapMs);
         }
+        if (f.role == Role::Stick || f.role == Role::Look) {
+            // a tap on the world moves on what waits for A: a film, a box, or a screen the game paused itself on
+            float h = Height();
+            bool tapped = std::hypot(f.x - f.x0, f.y - f.y0) <= kMenuMove * h && NowMs() - f.down_ms <= kContinueMs;
+            bool waiting = FilmShown() || (!input::InPlay() && !InMenus() && input::g_section != input::Section::Inventory);
+            if (tapped && waiting) input::Press(input::Tap::A);
+        }
         if (f.role != Role::Cursor) continue;
-        if (f.menu == MenuTouch::Undecided) {
-            // a tap: the cursor goes there and clicks
+        // a tap clicks where it lifts, however long it rested; only a swipe that scrolled does not
+        if (f.menu != MenuTouch::Scroll) {
             g_cursor_x = f.x;
             g_cursor_y = f.y;
             g_cursor_tap_until = NowMs() + input::kTapMs;
         }
-        if (f.menu != MenuTouch::Scroll) g_cursor_down = false;
+        g_cursor_down = false;
     }
     std::erase_if(g_fingers, [id](const Finger& f) { return f.id == id; });
     Recount();
@@ -1795,6 +1802,18 @@ void DrawIcon(const Pen& p, Icon icon) {
             p.Line(0, -0.3f, 0.34f, 0.08f);
             p.Line(-0.34f, 0.46f, 0, 0.08f);
             p.Line(0, 0.08f, 0.34f, 0.46f);
+            break;
+        case Icon::SteerLeft:  // two chevrons left, the steer
+            p.Line(0.34f, -0.42f, -0.02f, 0);
+            p.Line(-0.02f, 0, 0.34f, 0.42f);
+            p.Line(-0.06f, -0.42f, -0.42f, 0);
+            p.Line(-0.42f, 0, -0.06f, 0.42f);
+            break;
+        case Icon::SteerRight:  // and right
+            p.Line(-0.34f, -0.42f, 0.02f, 0);
+            p.Line(0.02f, 0, -0.34f, 0.42f);
+            p.Line(0.06f, -0.42f, 0.42f, 0);
+            p.Line(0.42f, 0, 0.06f, 0.42f);
             break;
         case Icon::Brake:  // two chevrons down, the brake
             p.Line(-0.34f, -0.08f, 0, 0.3f);

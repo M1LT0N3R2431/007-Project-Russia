@@ -51,7 +51,7 @@ The controls are the game's own pad, laid over the screen, and they change with 
 | Back (BACK, menus) | Back out of a menu |
 | Gear | Settings panel |
 
-Driving and the jetpack get their own buttons in the console's places: accelerate on A, brake on X, handbrake and land on B, slasher and exit on Y.
+Driving and the jetpack get their own buttons in the console's places: accelerate on A, brake on X, handbrake and land on B, slasher and exit on Y. In the car the stick only steers (it neither accelerates nor brakes), the two arrow buttons at the bottom left turn left and right, L locks the target, and Y exits the car on a tap or cuts the tires when held.
 
 The layout can be moved and resized: open the settings panel (gear), then **Touch Controls → Edit layout**. Drag a control to move it, pinch it to resize it, and use the bar at the top to reset, hide, cancel or save. The layout is kept in `layout.toml`.
 
