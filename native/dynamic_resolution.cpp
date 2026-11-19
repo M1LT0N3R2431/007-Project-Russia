@@ -17,12 +17,12 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 constexpr uint32_t kStep = 5;            // percent of the screen's height, the row's own step
-constexpr uint32_t kFloorPercent = 30;   // below this the picture is too soft to be worth the frames
+constexpr uint32_t kFloorPercent = 60;   // below this the picture is too soft to be worth the frames
 constexpr double kLowFps = 54.0;         // under this a step down is considered
 constexpr double kGoodFps = 57.0;        // at or above this a step up is considered
 constexpr double kGpuWaitDown = 1.0;     // ms: the GPU is behind, the resolution is what costs the frames
 constexpr double kGpuWaitUp = 0.6;       // ms: the GPU has room again
-constexpr double kLowWindow = 0.5;       // s under the target before a step down
+constexpr double kLowWindow = 1.0;       // s under the target before a step down: a hitch does not drop the picture
 constexpr double kGoodWindow = 3.0;      // s at the target before a step up
 constexpr double kSettleDown = 0.9;      // s the new size gets before it is judged
 constexpr double kSettleUp = 1.2;

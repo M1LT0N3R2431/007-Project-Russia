@@ -61,7 +61,7 @@ struct Options {
     gyro::Settings gyro;  // the controller's gyro turns player 1's view, beside the right stick
     uint32_t msaa = 0;  // samples a pixel of the scene, 0 off
     bool smaa = false;  // over the finished frame, HUD included; combines with msaa
-    bool dynamic_resolution = true;  // the render resolution drops while the GPU cannot keep the frame rate
+    bool dynamic_resolution = false;  // the render resolution drops while the GPU cannot keep the frame rate
     uint32_t draw_distance = 1;  // LOD and object distance multiplier, 1 the game's
     uint32_t fov = 65;  // horizontal degrees on a 4:3 frame, 65 is the game's
     uint32_t fmv_scale = 0;  // 4:3 films on a wider screen: 0 fill it, top and bottom cut; 1 kept 4:3

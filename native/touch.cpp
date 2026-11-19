@@ -126,7 +126,9 @@ constexpr Entry kEntries[] = {
     {{"inventory_right", "INVENTORY RIGHT", "D"}, Kind::Game, -1, Section::Inventory},
     {{"inventory_select", "SELECT ITEM", "LMB,Q"}, Kind::Game, kA, Section::Inventory},
     {{"inventory_cancel", "CANCEL", "RMB"}, Kind::Game, kB, Section::Inventory},
-    {{"car_accelerate", "ACCELERATE", "W"}, Kind::Game, kA, Section::Car},
+    // the console's A both accelerates and answers the boxes that pause the game waiting for it, so the pedal presses
+    // the pad's A itself: a keyboard only action would leave a driving tutorial box with no button to close it
+    {{"car_accelerate", "ACCELERATE", "W"}, Kind::Analog, kA, Section::Car},
     {{"car_brake", "BRAKE / REVERSE", "S"}, Kind::Game, kX, Section::Car},
     {{"car_steer_left", "STEER LEFT", "A"}, Kind::Move, kLeft, Section::Car},
     {{"car_steer_right", "STEER RIGHT", "D"}, Kind::Move, kRight, Section::Car},
@@ -1030,7 +1032,8 @@ constexpr Preset kPresets[] = {
     {"default", "DEFAULT", &kTwoFinger}, {"three", "3 FINGER", &kThreeFinger}, {"four", "4 FINGER", &kFourFinger}};
 
 constexpr float kStickZone = 0.42f;    // share of the width from the left a touch takes the stick in
-constexpr float kLookCounts = 1800.0f;  // mouse counts a swipe across the screen's width turns: 90 degrees
+constexpr float kLookCounts = 4500.0f;  // mouse counts a swipe across the screen's width turns: 180 degrees, at
+                                        // sensitivity 1; the settings' HORIZONTAL SENSITIVITY lowers it from there
 constexpr uint64_t kShownMs = 8000;     // the controls hide this long after the last touch while a pad is plugged in
 
 // a touch in the menus is a tap, a swipe up or down that scrolls, or the cursor held down (a slider dragged): which,

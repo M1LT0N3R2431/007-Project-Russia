@@ -125,8 +125,9 @@ namespace {
 
 const char* kModes[] = {"fullscreen", "borderless", "windowed"};
 // the defaults a settings file was written under: 3 has the frame rate unlimited and vsync on (FIFO), which a file from
-// before takes once, its player's own choices kept from then on
-constexpr int kDefaults = 3;
+// before takes once, its player's own choices kept from then on; 4 keeps the picture at RENDER RESOLUTION instead of
+// letting the dynamic resolution drop it, which a file from before takes once the same way
+constexpr int kDefaults = 4;
 
 std::filesystem::path File() { return ExeDir() / kGame.settings; }
 
@@ -156,9 +157,13 @@ void PhoneFrameDefaults(Settings& s) {
     s.fps_cap = 0;
     // FIFO: the phone's mailbox let the present wait a whole refresh on a frame the GPU had already finished, which
     // cost every second one and left the game at 30. With the display pacing the frames a frame that fits is a frame
-    // shown, and the dynamic resolution is the one that gives way when it does not.
+    // shown.
     s.vsync = true;
 }
+
+// the picture the phone starts with: RENDER RESOLUTION is the one the player picks and is kept as it is, the dynamic
+// resolution off until asked for, since a drop under it reads as the picture losing quality
+void PhoneOptionDefaults() { game::Opt().dynamic_resolution = false; }
 
 }  // namespace
 
@@ -193,12 +198,15 @@ void Load() {
     s.vsync = t["vsync"].value_or(s.vsync);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
-    if (t["defaults"].value_or(int64_t(0)) < kDefaults) PhoneFrameDefaults(s);
+    bool upgraded = t["defaults"].value_or(int64_t(0)) < kDefaults;
+    if (upgraded) PhoneFrameDefaults(s);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
     }
     if (kGame.load) kGame.load(&t);
+    // after the file's own values, so a file written under the old defaults takes the new ones once
+    if (upgraded) PhoneOptionDefaults();
 }
 
 void Save() {
