@@ -15,6 +15,10 @@ El proyecto fue creado a partir del port de PC [007FRWL-XBERecomp](https://githu
 
 El APK está en la página de [Releases](https://github.com/M1LT0N3R2431/007-Project-Russia/releases). Va firmado con la clave de depuración, así que se instala directamente.
 
+## Gameplay
+
+Aquí les dejo un test de rendimiento del port para Android: https://youtu.be/T5RSvJPlW7E?si=6n0a_dw3wJJLXrXw
+
 ## Requisitos
 
 - **Teléfono:** dispositivo arm64 con Vulkan 1.1, Android 8.0 (API 26) o superior.
